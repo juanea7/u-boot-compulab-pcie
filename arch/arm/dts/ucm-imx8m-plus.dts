@@ -773,3 +773,15 @@
 &lcdif2 {
 	status = "okay";
 };
+
+&pcie_phy {
+	status = "okay";
+};
+
+&pcie {
+	status = "okay";
+};
+
+&pcie_ep {
+	status = "disabled";
+};

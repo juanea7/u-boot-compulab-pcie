@@ -43,3 +43,4 @@ obj-$(CONFIG_PHY_XILINX_ZYNQMP) += phy-zynqmp.o
 obj-y += cadence/
 obj-y += ti/
 obj-y += qcom/
+obj-$(CONFIG_PHY_IMX8M_PCIE) += phy-imx8m-pcie.o
