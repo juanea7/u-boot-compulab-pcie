@@ -245,7 +245,8 @@ static int pcie_dw_imx_remove(struct udevice *dev)
 	struct pcie_dw_imx *priv = dev_get_priv(dev);
 
 	generic_shutdown_phy(&priv->phy);
-	dm_gpio_free(dev, &priv->reset_gpio);
+	if (dm_gpio_is_valid(&priv->reset_gpio))
+		dm_gpio_free(dev, &priv->reset_gpio);
 	reset_free(&priv->apps_reset);
 	clk_release_bulk(&priv->clks);
 
@@ -290,8 +291,7 @@ static int pcie_dw_imx_of_to_plat(struct udevice *dev)
 	ret = gpio_request_by_name(dev, "reset-gpio", 0, &priv->reset_gpio,
 				   GPIOD_IS_OUT | GPIOD_IS_OUT_ACTIVE);
 	if (ret) {
-		dev_err(dev, "unable to get reset-gpio\n");
-		goto err_gpio;
+		dev_dbg(dev, "no reset-gpio defined, continuing without PERST GPIO\n");
 	}
 
 	ret = generic_phy_get_by_name(dev, "pcie-phy", &priv->phy);
@@ -320,7 +320,8 @@ static int pcie_dw_imx_of_to_plat(struct udevice *dev)
 	return 0;
 
 err_phy:
-	dm_gpio_free(dev, &priv->reset_gpio);
+	if (dm_gpio_is_valid(&priv->reset_gpio))
+		dm_gpio_free(dev, &priv->reset_gpio);
 err_gpio:
 	reset_free(&priv->apps_reset);
 err_reset:
