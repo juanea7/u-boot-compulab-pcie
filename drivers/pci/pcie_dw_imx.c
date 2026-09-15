@@ -54,7 +54,10 @@ struct pcie_dw_imx {
 	struct reset_ctl		apps_reset;
 	struct phy			phy;
 	struct udevice			*vpcie;
+	bool				keep_resources_on_link_down;
 };
+
+static bool pcie_resources_kept;
 
 struct pcie_chip_info {
 	const char *gpr;
@@ -170,9 +173,11 @@ static int pcie_dw_imx_probe(struct udevice *dev)
 	struct pcie_dw_imx *priv = dev_get_priv(dev);
 	struct udevice *ctlr = pci_get_controller(dev);
 	struct pci_controller *hose = dev_get_uclass_priv(ctlr);
+	bool reuse_resources = priv->keep_resources_on_link_down &&
+			       pcie_resources_kept;
 	int ret;
 
-	if (priv->vpcie) {
+	if (!reuse_resources && priv->vpcie) {
 		ret = regulator_set_enable(priv->vpcie, true);
 		if (ret) {
 			dev_err(dev, "failed to enable vpcie regulator\n");
@@ -186,22 +191,27 @@ static int pcie_dw_imx_probe(struct udevice *dev)
 		return ret;
 	}
 
-	ret = imx_pcie_clk_enable(priv);
-	if (ret) {
-		dev_err(dev, "failed to enable clocks\n");
-		goto err_clk;
-	}
+	if (!reuse_resources) {
+		ret = imx_pcie_clk_enable(priv);
+		if (ret) {
+			dev_err(dev, "failed to enable clocks\n");
+			goto err_clk;
+		}
 
-	ret = generic_phy_init(&priv->phy);
-	if (ret) {
-		dev_err(dev, "failed to initialize PHY\n");
-		goto err_phy_init;
-	}
+		ret = generic_phy_init(&priv->phy);
+		if (ret) {
+			dev_err(dev, "failed to initialize PHY\n");
+			goto err_phy_init;
+		}
 
-	ret = generic_phy_power_on(&priv->phy);
-	if (ret) {
-		dev_err(dev, "failed to power on PHY\n");
-		goto err_phy_power;
+		ret = generic_phy_power_on(&priv->phy);
+		if (ret) {
+			dev_err(dev, "failed to power on PHY\n");
+			goto err_phy_power;
+		}
+	} else {
+		printf("PCIE-%d: Reusing active PCIe PHY/clocks\n",
+		       dev_seq(dev));
 	}
 
 	imx_pcie_deassert_core_reset(priv);
@@ -212,9 +222,19 @@ static int pcie_dw_imx_probe(struct udevice *dev)
 
 	if (pcie_link_up(priv, LINK_SPEED_GEN_1)) {
 		printf("PCIE-%d: Link down\n", dev_seq(dev));
+
+		if (priv->keep_resources_on_link_down) {
+			pcie_resources_kept = true;
+			printf("PCIE-%d: Keeping PCIe PHY/clocks enabled for late endpoint\n",
+			       dev_seq(dev));
+			return -ENODEV;
+		}
+
 		ret = -ENODEV;
 		goto err_link;
 	}
+	if (priv->keep_resources_on_link_down)
+		pcie_resources_kept = true;
 
 	printf("PCIE-%d: Link up (Gen%d-x%d, Bus%d)\n", dev_seq(dev),
 	       pcie_dw_get_link_speed(&priv->dw),
@@ -244,6 +264,7 @@ static int pcie_dw_imx_remove(struct udevice *dev)
 {
 	struct pcie_dw_imx *priv = dev_get_priv(dev);
 
+	pcie_resources_kept = false;
 	generic_shutdown_phy(&priv->phy);
 	if (dm_gpio_is_valid(&priv->reset_gpio))
 		dm_gpio_free(dev, &priv->reset_gpio);
@@ -259,6 +280,9 @@ static int pcie_dw_imx_of_to_plat(struct udevice *dev)
 	struct pcie_dw_imx *priv = dev_get_priv(dev);
 	ofnode gpr;
 	int ret;
+
+	priv->keep_resources_on_link_down =
+		dev_read_bool(dev, "u-boot,keep-pcie-resources-on-link-down");
 
 	/* Get the controller base address */
 	priv->dw.dbi_base = (void *)dev_read_addr_name(dev, "dbi");

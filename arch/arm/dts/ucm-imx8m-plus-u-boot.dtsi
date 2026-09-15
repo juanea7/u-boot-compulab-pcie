@@ -270,3 +270,7 @@
 	assigned-clock-parents = <&clk IMX8MP_SYS_PLL1_800M>;
 	assigned-clock-rates = <400000000>;
 };
+
+&pcie {
+	u-boot,keep-pcie-resources-on-link-down;
+};
